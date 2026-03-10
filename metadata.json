@@ -1,0 +1,5 @@
+{
+  "name": "DNA Sound Lab",
+  "description": "A minimalist and scientific web application for DNA sequence sonification. Convert DNA bases (A, C, G, T) into real-time sound events.",
+  "requestFramePermissions": []
+}
