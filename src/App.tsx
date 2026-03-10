@@ -20,10 +20,11 @@ import {
   Layers,
   Waves
 } from 'lucide-react';
-import { Base, Mapping, DEFAULT_MAPPING, Language, LayerConfig, ReadingMode } from './types';
+import { Base, Mapping, DEFAULT_MAPPING, Language, LayerConfig, ReadingMode, SOUND_PRESETS } from './types';
 import { generateRandomSequence, calculateStats, parseFASTA } from './utils/dnaUtils';
 import { useAudioEngine, LayerConfigs } from './hooks/useAudioEngine';
 import { translations } from './translations';
+import { Visualizer } from './components/Visualizer';
 
 const DEFAULT_LAYERS: LayerConfigs = {
   mono: { enabled: true, volume: 0.8, octaveOffset: 0, stepOffset: 0, loopLength: 0, detune: 0, pan: -0.5, waveType: 'sine', duration: 200 },
@@ -43,13 +44,18 @@ export default function App() {
   const [tempo, setTempo] = useState(120);
   const [volume, setVolume] = useState(0.5);
   const [readingMode, setReadingMode] = useState<ReadingMode>('structural');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(SOUND_PRESETS[0].id);
   const [sequenceName, setSequenceName] = useState<string>('Random Sequence');
   const [originalBases, setOriginalBases] = useState<Record<number, Base>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = translations[language];
   const stats = useMemo(() => calculateStats(sequence), [sequence]);
-  const { isPlaying, currentIndex, play, stop, setVolume: setAudioVolume, setTempo: setAudioTempo } = useAudioEngine(mapping, layers, readingMode);
+  const selectedPreset = useMemo(() => 
+    SOUND_PRESETS.find(p => p.id === selectedPresetId) || SOUND_PRESETS[0],
+    [selectedPresetId]
+  );
+  const { isPlaying, currentIndex, play, stop, initAudio, analyser, setVolume: setAudioVolume, setTempo: setAudioTempo } = useAudioEngine(mapping, layers, readingMode, selectedPreset);
 
   // Initialize
   useEffect(() => {
@@ -58,6 +64,11 @@ export default function App() {
       document.documentElement.classList.add('dark');
     }
   }, []);
+
+  const handleStart = () => {
+    initAudio();
+    setShowSplash(false);
+  };
 
   // Update audio engine refs
   useEffect(() => {
@@ -202,7 +213,7 @@ export default function App() {
               </div>
 
               <button 
-                onClick={() => setShowSplash(false)}
+                onClick={handleStart}
                 className="w-full mt-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-lg shadow-blue-500/20"
               >
                 {t.start}
@@ -218,6 +229,9 @@ export default function App() {
           <div className="flex items-center gap-2">
             <Dna className="text-blue-500 w-6 h-6" />
             <h1 className="text-xl font-bold tracking-tight">{t.title}</h1>
+            <div className="h-6 w-24 ml-2 hidden sm:block">
+              <Visualizer analyser={analyser} isDarkMode={isDarkMode} />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={toggleLanguage} className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
@@ -291,9 +305,14 @@ export default function App() {
 
           {/* Playback Controls */}
           <section className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
-              <Music className="w-5 h-5 text-blue-500" />
-              {t.play}
+            <h2 className="text-lg font-semibold mb-4 flex items-center justify-between text-black dark:text-white">
+              <div className="flex items-center gap-2">
+                <Music className="w-5 h-5 text-blue-500" />
+                {t.play}
+              </div>
+              <div className="h-8 w-32">
+                <Visualizer analyser={analyser} isDarkMode={isDarkMode} />
+              </div>
             </h2>
             <div className="space-y-6">
               <div className="flex gap-2">
@@ -365,6 +384,22 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-2 text-black dark:text-gray-400">
+                    <span className="flex items-center gap-2"><Waves className="w-4 h-4" /> {t.soundStyle}</span>
+                  </div>
+                  <select 
+                    value={selectedPresetId}
+                    onChange={(e) => setSelectedPresetId(e.target.value)}
+                    className="w-full p-3 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none text-black dark:text-white appearance-none cursor-pointer"
+                  >
+                    {SOUND_PRESETS.map(preset => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name[language]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </section>
@@ -379,15 +414,20 @@ export default function App() {
               {(['mono', 'di', 'tri'] as const).map((layerKey) => (
                 <div key={layerKey} className="p-3 bg-white dark:bg-black rounded-2xl border border-gray-100 dark:border-white/5 space-y-3">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-bold uppercase flex items-center gap-2 text-black dark:text-white">
-                      <input 
-                        type="checkbox" 
-                        checked={layers[layerKey].enabled} 
-                        onChange={(e) => updateLayer(layerKey, { enabled: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      {t[`${layerKey}Layer` as keyof typeof t]}
-                    </label>
+                    <div className="flex flex-col">
+                      <label className="text-xs font-bold uppercase flex items-center gap-2 text-black dark:text-white">
+                        <input 
+                          type="checkbox" 
+                          checked={layers[layerKey].enabled} 
+                          onChange={(e) => updateLayer(layerKey, { enabled: e.target.checked })}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {t[`${layerKey}Layer` as keyof typeof t]}
+                      </label>
+                      <span className="text-[10px] text-blue-500 font-medium ml-6">
+                        {layerKey === 'mono' ? 'Bass' : layerKey === 'di' ? 'Pad' : 'Sparkle'}
+                      </span>
+                    </div>
                     <div className="flex gap-1">
                       {(['sine', 'square', 'sawtooth', 'triangle'] as OscillatorType[]).map(type => (
                         <button 
@@ -619,20 +659,34 @@ export default function App() {
             <div className="bg-white dark:bg-black p-6 rounded-3xl text-black dark:text-blue-400 border border-gray-200 dark:border-blue-900/50 shadow-xl shadow-blue-500/5 relative overflow-hidden">
               <Dna className="absolute -right-8 -bottom-8 w-48 h-48 text-blue-500/10 dark:text-blue-500/5 rotate-12" />
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
-                <Info className="w-5 h-5 text-blue-500" />
-                {t.howItWorks}
+                <BookOpen className="w-5 h-5 text-blue-500" />
+                {language === 'en' ? 'Learning Challenges' : 'Desafíos de Aprendizaje'}
               </h2>
-              <div className="space-y-3 text-sm text-black dark:text-blue-300 relative z-10">
-                <p>
-                  {language === 'en' 
-                    ? "This tool overlays three layers of sonification: Mono-nucleotides (individual bases), Di-nucleotides (pairs), and Tri-nucleotides (codons)."
-                    : "Esta herramienta superpone tres capas de sonificación: Mono-nucleótidos (bases individuales), Di-nucleótidos (pares) y Tri-nucleótidos (codones)."}
-                </p>
-                <p>
-                  {language === 'en'
-                    ? "Each layer can be configured with different wave types and octave offsets to create a rich, multi-instrumental representation of the genetic data."
-                    : "Cada capa se puede configurar con diferentes tipos de onda y desplazamientos de octava para crear una representación multi-instrumental rica de los datos genéticos."}
-                </p>
+              <div className="space-y-4 text-sm relative z-10">
+                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
+                  <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">1. {language === 'en' ? 'The GC Rhythm' : 'El Ritmo GC'}</p>
+                  <p className="text-xs text-black dark:text-blue-200">
+                    {language === 'en' 
+                      ? "Guanine (G) and Cytosine (C) create the longest beats. Can you find a sequence with high GC content and describe how its 'heartbeat' feels compared to an AT-rich sequence?"
+                      : "La Guanina (G) y la Citosina (C) crean los pulsos más largos. ¿Puedes encontrar una secuencia con alto contenido GC y describir cómo se siente su 'latido' comparado con una rica en AT?"}
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
+                  <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">2. {language === 'en' ? 'Codon Harmonics' : 'Armónicos de Codón'}</p>
+                  <p className="text-xs text-black dark:text-blue-200">
+                    {language === 'en' 
+                      ? "Enable the Tri-nucleotide layer. Some codons trigger silence (rests). Can you identify which base combinations create these rhythmic gaps and why they might be important for musical structure?"
+                      : "Activa la capa de Tri-nucleótidos. Algunos codones activan silencios. ¿Puedes identificar qué combinaciones de bases crean estos huecos rítmicos y por qué podrían ser importantes para la estructura musical?"}
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
+                  <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">3. {language === 'en' ? 'Sonic Mutation' : 'Mutación Sónica'}</p>
+                  <p className="text-xs text-black dark:text-blue-200">
+                    {language === 'en' 
+                      ? "Manually toggle bases to create pauses (-). Try to 'sculpt' a 4/4 drum beat using only genetic pauses. How does changing the 'Sound Style' affect the emotional impact of your genetic composition?"
+                      : "Cambia manualmente las bases para crear pausas (-). Intenta 'esculpir' un ritmo de 4/4 usando solo pausas genéticas. ¿Cómo afecta cambiar el 'Estilo de Sonido' al impacto emocional de tu composición genética?"}
+                  </p>
+                </div>
               </div>
             </div>
           </section>

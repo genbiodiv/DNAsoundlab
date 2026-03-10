@@ -37,6 +37,7 @@ export const translations: Record<'en' | 'es', Translation> = {
     readingMode: 'Reading Mode',
     structural: 'Structural (Stable)',
     analytical: 'Analytical (Sliding)',
+    soundStyle: 'Sound Style',
   },
   es: {
     title: 'DNA Sound Lab',
@@ -74,5 +75,6 @@ export const translations: Record<'en' | 'es', Translation> = {
     readingMode: 'Modo de Lectura',
     structural: 'Estructural (Estable)',
     analytical: 'Analítico (Deslizante)',
+    soundStyle: 'Estilo de Sonido',
   },
 };
