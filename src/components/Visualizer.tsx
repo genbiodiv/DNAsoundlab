@@ -53,22 +53,11 @@ export const Visualizer = ({ analyser, isDarkMode }: VisualizerProps) => {
       for (let i = 0; i < bufferLength; i++) {
         barHeight = (dataArray[i] / 255) * height;
 
-        // Gradient color based on theme
-        const gradient = ctx.createLinearGradient(0, height, 0, 0);
-        if (isDarkMode) {
-          gradient.addColorStop(0, '#3b82f6'); // blue-500
-          gradient.addColorStop(1, '#60a5fa'); // blue-400
-        } else {
-          gradient.addColorStop(0, '#2563eb'); // blue-600
-          gradient.addColorStop(1, '#3b82f6'); // blue-500
-        }
-
-        ctx.fillStyle = gradient;
-        // Rounded bars
-        ctx.beginPath();
-        const radius = barWidth / 2;
-        ctx.roundRect(x, height - barHeight, barWidth, barHeight, [radius, radius, 0, 0]);
-        ctx.fill();
+        // Color based on theme
+        ctx.fillStyle = isDarkMode ? '#ffffff' : '#000000';
+        
+        // Rectangular bars (no rounding)
+        ctx.fillRect(x, height - barHeight, barWidth, barHeight);
 
         x += barWidth + 1;
       }

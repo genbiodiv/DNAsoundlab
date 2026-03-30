@@ -5,6 +5,7 @@ export interface LayerConfigs {
   mono: LayerConfig;
   di: LayerConfig;
   tri: LayerConfig;
+  window: LayerConfig;
 }
 
 const LENGTH_MAP: Record<string, number> = {
@@ -39,22 +40,25 @@ const buildAnchorTimes = (sequence: Base[], bpm: number) => {
 
 export const useAudioEngine = (mapping: Mapping, layers: LayerConfigs, readingMode: ReadingMode, preset: SoundPreset) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [currentIndices, setCurrentIndices] = useState<Record<string, number>>({ mono: -1, di: -1, tri: -1, window: -1 });
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const timersRef = useRef<Record<string, number>>({});
   const sequenceRef = useRef<Base[]>([]);
   const volumeRef = useRef(0.5);
-  const tempoRef = useRef(120);
-  const currentIndexRef = useRef(-1);
-  const anchorTimesRef = useRef<number[]>([]);
+  const currentIndicesRef = useRef<Record<string, number>>({ mono: -1, di: -1, tri: -1, window: -1 });
   const presetRef = useRef<SoundPreset>(preset);
+  const layersRef = useRef<LayerConfigs>(layers);
 
-  // Keep preset ref up to date
+  // Keep refs up to date
   useEffect(() => {
     presetRef.current = preset;
   }, [preset]);
+
+  useEffect(() => {
+    layersRef.current = layers;
+  }, [layers]);
 
   const initAudio = useCallback(() => {
     if (!audioContextRef.current) {
@@ -77,12 +81,14 @@ export const useAudioEngine = (mapping: Mapping, layers: LayerConfigs, readingMo
 
   const stop = useCallback(() => {
     setIsPlaying(false);
-    setCurrentIndex(-1);
-    currentIndexRef.current = -1;
-    if (timerRef.current) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
+    const resetIndices = { mono: -1, di: -1, tri: -1, window: -1 };
+    setCurrentIndices(resetIndices);
+    currentIndicesRef.current = resetIndices;
+    
+    (Object.values(timersRef.current) as number[]).forEach(timer => {
+      if (timer) window.clearTimeout(timer);
+    });
+    timersRef.current = {};
   }, []);
 
   const trigger = useCallback((freq: number, config: LayerConfig, params: LayerParams, startTime: number, duration: number) => {
@@ -103,7 +109,6 @@ export const useAudioEngine = (mapping: Mapping, layers: LayerConfigs, readingMo
     filter.frequency.setValueAtTime(params.filterFreq, startTime);
     filter.Q.setValueAtTime(params.q, startTime);
 
-    // ADSR Envelope from preset
     const attack = params.attack;
     const decay = 0.05;
     const sustain = 0.6;
@@ -130,124 +135,129 @@ export const useAudioEngine = (mapping: Mapping, layers: LayerConfigs, readingMo
     osc.stop(startTime + duration);
   }, []);
 
-  const playNote = useCallback((index: number) => {
-    initAudio();
-    const ctx = audioContextRef.current!;
+  const playLayerStep = useCallback((layerKey: keyof LayerConfigs) => {
     const sequence = sequenceRef.current;
-    const anchorTimes = anchorTimesRef.current;
-    const ctxTime = ctx.currentTime;
-    const currentPreset = presetRef.current;
-    
-    // Global offsets
-    const diOffset = 0.012; // 12ms
-    const triOffset = 0.024; // 24ms
-    
-    // Gate factors
-    const monoGate = 0.85;
-    const diGate = 0.75;
-    const triGate = 0.7;
+    if (sequence.length === 0) return;
 
-    // Layer 1: Mono (Bass)
-    const monoLoop = layers.mono.loopLength || sequence.length;
-    const monoIdx = ((index % monoLoop) + layers.mono.stepOffset) % sequence.length;
-    const monoStart = ctxTime;
-    const monoWindow = anchorTimes[index + 1] - anchorTimes[index];
-    const monoDuration = Math.min(layers.mono.duration / 1000, monoWindow * monoGate);
+    const config = layersRef.current[layerKey];
+    if (!config.enabled) return;
+
+    const currentPreset = presetRef.current;
+    const ctx = audioContextRef.current!;
+    const ctxTime = ctx.currentTime;
+
+    // Increment beat count for this layer
+    const beatCount = (currentIndicesRef.current[layerKey] + 1);
+    currentIndicesRef.current[layerKey] = beatCount;
+
+    // Determine the step (sequence jump) for this layer
+    let step = 1;
+    if (layerKey === 'di') step = readingMode === 'structural' ? 2 : 1;
+    else if (layerKey === 'tri') step = readingMode === 'structural' ? 3 : 1;
+    else if (layerKey === 'window') step = config.windowStep || 1;
+
+    // Calculate the actual position in the sequence
+    const sequenceIndex = (beatCount * step) % sequence.length;
     
-    if (sequence[monoIdx] !== '-') {
-      trigger(mapping[sequence[monoIdx]], layers.mono, currentPreset.bass, monoStart, monoDuration);
+    // Update state for UI
+    setCurrentIndices(prev => ({ ...prev, [layerKey]: sequenceIndex }));
+
+    const beatDuration = 60 / config.tempo;
+    const currentBase = sequence[sequenceIndex];
+    const stepBeats = LENGTH_MAP[currentBase] || 1.0;
+    const stepDuration = stepBeats * beatDuration;
+
+    // Trigger logic per layer using the calculated sequenceIndex
+    if (layerKey === 'mono') {
+      const monoIdx = ((sequenceIndex % (config.loopLength || sequence.length)) + config.stepOffset) % sequence.length;
+      const monoDuration = Math.min(config.duration / 1000, stepDuration * 0.85);
+      if (sequence[monoIdx] !== '-') {
+        trigger(mapping[sequence[monoIdx]], config, currentPreset.bass, ctxTime, monoDuration);
+      }
     }
 
-    // Layer 2: Di (Pad)
-    const diStep = readingMode === 'structural' ? 2 : 1;
-    if (index % diStep === 0) {
-      const diLoop = layers.di.loopLength || sequence.length;
-      const diIdx = ((index % diLoop) + layers.di.stepOffset) % sequence.length;
-      
+    if (layerKey === 'di') {
+      const diIdx = ((sequenceIndex % (config.loopLength || sequence.length)) + config.stepOffset) % sequence.length;
       if (diIdx < sequence.length - 1) {
         const b1 = sequence[diIdx];
         const b2 = sequence[diIdx + 1];
-        
-        const isRest = b1 === b2 && b1 !== '-';
-        
-        if (!isRest && b1 !== '-' && b2 !== '-') {
-          const diStart = ctxTime + diOffset;
-          const diWindow = anchorTimes[index + 2] - anchorTimes[index];
-          const diDuration = Math.min(layers.di.duration / 1000, diWindow * diGate);
-          
-          trigger(mapping[b1], layers.di, currentPreset.pad, diStart, diDuration);
-          trigger(mapping[b2], { ...layers.di, detune: layers.di.detune + 12 }, currentPreset.pad, diStart, diDuration);
+        if (b1 !== '-' && b2 !== '-' && !(b1 === b2 && b1 !== '-')) {
+          const diDuration = Math.min(config.duration / 1000, stepDuration * 1.5);
+          trigger(mapping[b1], config, currentPreset.pad, ctxTime + 0.012, diDuration);
+          trigger(mapping[b2], { ...config, detune: config.detune + 12 }, currentPreset.pad, ctxTime + 0.012, diDuration);
         }
       }
     }
 
-    // Layer 3: Tri (Sparkle)
-    const triStep = readingMode === 'structural' ? 3 : 1;
-    if (index % triStep === 0) {
-      const triLoop = layers.tri.loopLength || sequence.length;
-      const triIdx = ((index % triLoop) + layers.tri.stepOffset) % sequence.length;
-      
+    if (layerKey === 'tri') {
+      const triIdx = ((sequenceIndex % (config.loopLength || sequence.length)) + config.stepOffset) % sequence.length;
       if (triIdx < sequence.length - 2) {
         const b1 = sequence[triIdx];
         const b2 = sequence[triIdx + 1];
         const b3 = sequence[triIdx + 2];
-        
         const triComboIndex = baseToIndex(b1) * 16 + baseToIndex(b2) * 4 + baseToIndex(b3);
-        const isRest = triComboIndex % 16 === 0;
-
-        if (!isRest && b1 !== '-' && b2 !== '-' && b3 !== '-') {
-          const triStart = ctxTime + triOffset;
-          const triWindow = anchorTimes[index + 3] - anchorTimes[index];
-          const triDuration = Math.min(layers.tri.duration / 1000, triWindow * triGate);
-          
-          trigger(mapping[b1], layers.tri, currentPreset.sparkle, triStart, triDuration);
-          trigger(mapping[b2], { ...layers.tri, detune: layers.tri.detune + 12 }, currentPreset.sparkle, triStart, triDuration);
-          trigger(mapping[b3], { ...layers.tri, detune: layers.tri.detune - 12 }, currentPreset.sparkle, triStart, triDuration);
+        if (triComboIndex % 16 !== 0 && b1 !== '-' && b2 !== '-' && b3 !== '-') {
+          const triDuration = Math.min(config.duration / 1000, stepDuration * 2.0);
+          trigger(mapping[b1], config, currentPreset.sparkle, ctxTime + 0.024, triDuration);
+          trigger(mapping[b2], { ...config, detune: config.detune + 12 }, currentPreset.sparkle, ctxTime + 0.024, triDuration);
+          trigger(mapping[b3], { ...config, detune: config.detune - 12 }, currentPreset.sparkle, ctxTime + 0.024, triDuration);
         }
       }
     }
-  }, [mapping, layers, readingMode, trigger]);
 
-  const playNext = useCallback(() => {
-    currentIndexRef.current += 1;
-    const nextIndex = currentIndexRef.current;
-
-    if (nextIndex < sequenceRef.current.length) {
-      setCurrentIndex(nextIndex);
-      playNote(nextIndex);
-      
-      const anchorTimes = anchorTimesRef.current;
-      const interval = (anchorTimes[nextIndex + 1] - anchorTimes[nextIndex]) * 1000;
-      
-      timerRef.current = window.setTimeout(playNext, interval);
-    } else {
-      stop();
+    if (layerKey === 'window') {
+      const windowSize = config.windowSize || 10;
+      const windowIdx = ((sequenceIndex % (config.loopLength || sequence.length)) + config.stepOffset) % sequence.length;
+      const counts: Record<Base, number> = { 'A': 0, 'C': 0, 'G': 0, 'T': 0, '-': 0 };
+      for (let i = 0; i < windowSize; i++) {
+        counts[sequence[(windowIdx + i) % sequence.length]]++;
+      }
+      const windowDuration = config.duration / 1000;
+      (['A', 'C', 'G', 'T'] as Base[]).forEach(base => {
+        if (counts[base] > 0) {
+          const baseVolume = (counts[base] / windowSize) * config.volume;
+          trigger(mapping[base], { ...config, volume: baseVolume }, currentPreset.window, ctxTime, windowDuration);
+        }
+      });
     }
-  }, [playNote, stop]);
+
+    // Schedule next step for this layer
+    timersRef.current[layerKey] = window.setTimeout(() => playLayerStep(layerKey), stepDuration * 1000);
+  }, [mapping, readingMode, trigger]);
 
   const play = useCallback((sequence: Base[]) => {
+    initAudio();
     sequenceRef.current = sequence;
-    anchorTimesRef.current = buildAnchorTimes(sequence, tempoRef.current);
     setIsPlaying(true);
-    currentIndexRef.current = -1;
-    playNext();
-  }, [playNext]);
+    
+    const resetIndices = { mono: -1, di: -1, tri: -1, window: -1 };
+    currentIndicesRef.current = resetIndices;
+    setCurrentIndices(resetIndices);
+
+    // Start each enabled layer independently
+    (['mono', 'di', 'tri', 'window'] as const).forEach(layerKey => {
+      if (layersRef.current[layerKey].enabled) {
+        playLayerStep(layerKey);
+      }
+    });
+  }, [initAudio, playLayerStep]);
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current);
+      (Object.values(timersRef.current) as number[]).forEach(timer => {
+        if (timer) window.clearTimeout(timer);
+      });
       if (audioContextRef.current) audioContextRef.current.close();
     };
   }, []);
 
   return {
     isPlaying,
-    currentIndex,
+    currentIndices,
     play,
     stop,
     initAudio,
     analyser,
     setVolume: (v: number) => (volumeRef.current = v),
-    setTempo: (t: number) => (tempoRef.current = t),
   };
 };

@@ -21,15 +21,16 @@ import {
   Waves
 } from 'lucide-react';
 import { Base, Mapping, DEFAULT_MAPPING, Language, LayerConfig, ReadingMode, SOUND_PRESETS } from './types';
-import { generateRandomSequence, calculateStats, parseFASTA } from './utils/dnaUtils';
+import { generateRandomSequence, calculateStats, parseFASTA, fetchGenBank } from './utils/dnaUtils';
 import { useAudioEngine, LayerConfigs } from './hooks/useAudioEngine';
 import { translations } from './translations';
 import { Visualizer } from './components/Visualizer';
 
 const DEFAULT_LAYERS: LayerConfigs = {
-  mono: { enabled: true, volume: 0.8, octaveOffset: 0, stepOffset: 0, loopLength: 0, detune: 0, pan: -0.5, waveType: 'sine', duration: 200 },
-  di: { enabled: false, volume: 0.5, octaveOffset: -1, stepOffset: 0, loopLength: 0, detune: 5, pan: 0.5, waveType: 'triangle', duration: 300 },
-  tri: { enabled: false, volume: 0.4, octaveOffset: -2, stepOffset: 0, loopLength: 0, detune: -5, pan: 0, waveType: 'sawtooth', duration: 400 },
+  mono: { enabled: true, volume: 0.8, octaveOffset: 0, stepOffset: 0, loopLength: 0, detune: 0, pan: -0.5, waveType: 'sine', duration: 200, tempo: 120 },
+  di: { enabled: false, volume: 0.5, octaveOffset: -1, stepOffset: 0, loopLength: 0, detune: 5, pan: 0.5, waveType: 'triangle', duration: 300, tempo: 120 },
+  tri: { enabled: false, volume: 0.4, octaveOffset: -2, stepOffset: 0, loopLength: 0, detune: -5, pan: 0, waveType: 'sawtooth', duration: 400, tempo: 120 },
+  window: { enabled: false, volume: 0.3, octaveOffset: -1, stepOffset: 0, loopLength: 0, detune: 0, pan: 0, waveType: 'sine', duration: 500, windowSize: 10, windowStep: 1, tempo: 120 },
 };
 
 export default function App() {
@@ -47,6 +48,9 @@ export default function App() {
   const [selectedPresetId, setSelectedPresetId] = useState<string>(SOUND_PRESETS[0].id);
   const [sequenceName, setSequenceName] = useState<string>('Random Sequence');
   const [originalBases, setOriginalBases] = useState<Record<number, Base>>({});
+  const [accession, setAccession] = useState('');
+  const [importLimit, setImportLimit] = useState('2000');
+  const [isFetching, setIsFetching] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = translations[language];
@@ -55,7 +59,7 @@ export default function App() {
     SOUND_PRESETS.find(p => p.id === selectedPresetId) || SOUND_PRESETS[0],
     [selectedPresetId]
   );
-  const { isPlaying, currentIndex, play, stop, initAudio, analyser, setVolume: setAudioVolume, setTempo: setAudioTempo } = useAudioEngine(mapping, layers, readingMode, selectedPreset);
+  const { isPlaying, currentIndices, play, stop, initAudio, analyser, setVolume: setAudioVolume } = useAudioEngine(mapping, layers, readingMode, selectedPreset);
 
   // Initialize
   useEffect(() => {
@@ -73,8 +77,7 @@ export default function App() {
   // Update audio engine refs
   useEffect(() => {
     setAudioVolume(volume);
-    setAudioTempo(tempo);
-  }, [volume, tempo, setAudioVolume, setAudioTempo]);
+  }, [volume, setAudioVolume]);
 
   // Handlers
   const handleGenerate = () => {
@@ -98,6 +101,24 @@ export default function App() {
       setOriginalBases({});
     };
     reader.readAsText(file);
+  };
+
+  const handleGenBankFetch = async () => {
+    if (!accession) return;
+    setIsFetching(true);
+    try {
+      const limit = parseInt(importLimit) || 2000;
+      const { name, sequence: newSequence } = await fetchGenBank(accession, limit);
+      stop();
+      setSequenceName(name);
+      setSequence(newSequence);
+      setOriginalBases({});
+    } catch (error) {
+      console.error(error);
+      alert(language === 'en' ? 'Error fetching GenBank data' : 'Error al obtener datos de GenBank');
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   const toggleBase = (idx: number) => {
@@ -169,12 +190,12 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="max-w-2xl w-full bg-white dark:bg-black rounded-3xl p-8 shadow-2xl border border-gray-200 dark:border-white/10 overflow-y-auto max-h-[90vh]"
+              className="max-w-2xl w-full line-box p-8 overflow-y-auto max-h-[90vh]"
             >
               <div className="flex justify-between items-start mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-blue-500 rounded-2xl">
-                    <Dna className="text-white w-8 h-8" />
+                  <div className="p-3 border border-blue-500">
+                    <Dna className="text-blue-500 w-8 h-8" />
                   </div>
                   <h1 className="text-3xl font-bold tracking-tight">{t.title}</h1>
                 </div>
@@ -190,23 +211,43 @@ export default function App() {
                     : "Bienvenido al DNA Sound Lab. Esta herramienta profesional convierte secuencias genéticas en frecuencias audibles multicapa, permitiéndote analizar patrones a través del sonido."}
                 </p>
 
-                <section>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => {
+                      const el = document.getElementById('instructions-section');
+                      el?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="px-6 py-2 border border-current font-bold hover:bg-current hover:text-inherit transition-all flex items-center gap-2"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    {t.instructions}
+                  </button>
+                  <button 
+                    onClick={toggleLanguage}
+                    className="px-6 py-2 border border-current font-bold hover:bg-current hover:text-inherit transition-all flex items-center gap-2"
+                  >
+                    <Globe className="w-4 h-4" />
+                    {language === 'en' ? 'Español' : 'English'}
+                  </button>
+                </div>
+
+                <section id="instructions-section" className="pt-4">
                   <h2 className="text-xl font-semibold text-black dark:text-white mb-3 flex items-center gap-2">
                     <BookOpen className="w-5 h-5 text-blue-500" />
-                    {t.instructions}
+                    {t.howItWorks}
                   </h2>
                   <div className="space-y-4">
-                    <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-transparent">
-                      <h3 className="font-bold text-black dark:text-white mb-1">1. {language === 'en' ? 'Sequence Space' : 'Espacio de Secuencia'}</h3>
-                      <p className="text-sm text-black dark:text-gray-400">{t.part1}</p>
+                    <div className="p-4 border border-current opacity-80">
+                      <h3 className="font-bold mb-1">1. {language === 'en' ? 'Sequence Space' : 'Espacio de Secuencia'}</h3>
+                      <p className="text-sm">{t.part1}</p>
                     </div>
-                    <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-transparent">
-                      <h3 className="font-bold text-black dark:text-white mb-1">2. {language === 'en' ? 'Layer Controls' : 'Controles de Capa'}</h3>
-                      <p className="text-sm text-black dark:text-gray-400">{t.part2}</p>
+                    <div className="p-4 border border-current opacity-80">
+                      <h3 className="font-bold mb-1">2. {language === 'en' ? 'Layer Controls' : 'Controles de Capa'}</h3>
+                      <p className="text-sm">{t.part2}</p>
                     </div>
-                    <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-transparent">
-                      <h3 className="font-bold text-black dark:text-white mb-1">3. {language === 'en' ? 'Mapping' : 'Mapeo'}</h3>
-                      <p className="text-sm text-black dark:text-gray-400">{t.part3}</p>
+                    <div className="p-4 border border-current opacity-80">
+                      <h3 className="font-bold mb-1">3. {language === 'en' ? 'Mapping' : 'Mapeo'}</h3>
+                      <p className="text-sm">{t.part3}</p>
                     </div>
                   </div>
                 </section>
@@ -214,7 +255,7 @@ export default function App() {
 
               <button 
                 onClick={handleStart}
-                className="w-full mt-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-lg shadow-blue-500/20"
+                className="w-full mt-8 py-4 border-2 border-current font-bold transition-all transform hover:scale-[1.01] active:scale-95"
               >
                 {t.start}
               </button>
@@ -224,7 +265,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Layout */}
-      <header className="sticky top-0 z-40 w-full border-b border-gray-200 dark:border-white/10 bg-white/80 dark:bg-black/80 backdrop-blur-md">
+      <header className="sticky top-0 z-40 w-full border-b border-current bg-inherit backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Dna className="text-blue-500 w-6 h-6" />
@@ -254,14 +295,14 @@ export default function App() {
         <div className="lg:col-span-4 space-y-6">
           
           {/* Generation & Upload Controls */}
-          <section className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
-              <RefreshCw className="w-5 h-5 text-blue-500" />
+          <section className="line-box p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <RefreshCw className="w-5 h-5" />
               {t.generate} & {t.uploadFasta}
             </h2>
             <div className="space-y-4">
               <div>
-                <div className="flex justify-between text-sm mb-2 text-black dark:text-gray-400">
+                <div className="flex justify-between text-sm mb-2">
                   <span>{t.length}</span>
                   <span className="font-mono">{sequenceLength}</span>
                 </div>
@@ -274,20 +315,20 @@ export default function App() {
                     const val = parseInt(e.target.value);
                     if (!isNaN(val)) setSequenceLength(val);
                   }}
-                  className="w-full h-2 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  className="w-full"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button 
                   onClick={handleGenerate}
-                  className="py-3 bg-white dark:bg-black border border-gray-200 dark:border-white/10 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl font-medium transition-all flex items-center justify-center gap-2 text-sm"
+                  className="py-3 border border-current hover:bg-current hover:text-inherit font-medium transition-all flex items-center justify-center gap-2 text-sm"
                 >
                   <RefreshCw className="w-4 h-4" />
                   {t.generate}
                 </button>
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="py-3 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 hover:border-blue-500 dark:hover:border-blue-500 text-blue-600 dark:text-blue-400 rounded-xl font-medium transition-all flex items-center justify-center gap-2 text-sm"
+                  className="py-3 border border-current hover:bg-current hover:text-inherit font-medium transition-all flex items-center justify-center gap-2 text-sm"
                 >
                   <Upload className="w-4 h-4" />
                   {t.uploadFasta}
@@ -300,17 +341,50 @@ export default function App() {
                   className="hidden" 
                 />
               </div>
+
+              <div className="pt-4 border-t border-current space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase opacity-60">{t.genbankAccession}</label>
+                    <input 
+                      type="text" 
+                      value={accession}
+                      onChange={(e) => setAccession(e.target.value)}
+                      placeholder="e.g. NM_000518"
+                      className="w-full p-2 bg-transparent border border-current text-xs outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase opacity-60">{t.importLimit}</label>
+                    <input 
+                      type="number" 
+                      value={importLimit}
+                      onChange={(e) => setImportLimit(e.target.value)}
+                      placeholder="2000"
+                      className="w-full p-2 bg-transparent border border-current text-xs outline-none"
+                    />
+                  </div>
+                </div>
+                <button 
+                  onClick={handleGenBankFetch}
+                  disabled={isFetching || !accession}
+                  className="w-full py-2 border border-current hover:bg-current hover:text-inherit font-bold transition-all flex items-center justify-center gap-2 text-xs disabled:opacity-30"
+                >
+                  {isFetching ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Globe className="w-3 h-3" />}
+                  {t.fetch}
+                </button>
+              </div>
             </div>
           </section>
 
           {/* Playback Controls */}
-          <section className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10">
-            <h2 className="text-lg font-semibold mb-4 flex items-center justify-between text-black dark:text-white">
+          <section className="line-box p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Music className="w-5 h-5 text-blue-500" />
+                <Music className="w-5 h-5" />
                 {t.play}
               </div>
-              <div className="h-8 w-32">
+              <div className="h-8 w-32 border border-current">
                 <Visualizer analyser={analyser} isDarkMode={isDarkMode} />
               </div>
             </h2>
@@ -319,7 +393,7 @@ export default function App() {
                 {!isPlaying ? (
                   <button 
                     onClick={() => play(sequence)}
-                    className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-500/20"
+                    className="flex-1 py-4 border-2 border-current font-bold flex items-center justify-center gap-2 transition-all hover:bg-current hover:text-inherit"
                   >
                     <Play className="w-5 h-5 fill-current" />
                     {t.play}
@@ -327,7 +401,7 @@ export default function App() {
                 ) : (
                   <button 
                     onClick={stop}
-                    className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-500/20"
+                    className="flex-1 py-4 border-2 border-red-500 text-red-500 font-bold flex items-center justify-center gap-2 transition-all hover:bg-red-500 hover:text-white"
                   >
                     <Square className="w-5 h-5 fill-current" />
                     {t.stop}
@@ -337,21 +411,30 @@ export default function App() {
 
               <div className="space-y-4">
                 <div>
-                  <div className="flex justify-between text-sm mb-2 text-black dark:text-gray-400">
-                    <span className="flex items-center gap-2"><Activity className="w-4 h-4" /> {t.tempo}</span>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="flex items-center gap-2"><Activity className="w-4 h-4" /> {t.tempo} (Master)</span>
                     <span className="font-mono">{tempo}</span>
                   </div>
                   <input 
                     type="range" min="60" max="960" value={tempo || 60} 
                     onChange={(e) => {
                       const val = parseInt(e.target.value);
-                      if (!isNaN(val)) setTempo(val);
+                      if (!isNaN(val)) {
+                        setTempo(val);
+                        // Update all layers
+                        setLayers(prev => ({
+                          mono: { ...prev.mono, tempo: val },
+                          di: { ...prev.di, tempo: val },
+                          tri: { ...prev.tri, tempo: val },
+                          window: { ...prev.window, tempo: val },
+                        }));
+                      }
                     }}
-                    className="w-full h-1.5 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    className="w-full"
                   />
                 </div>
                 <div>
-                  <div className="flex justify-between text-sm mb-2 text-black dark:text-gray-400">
+                  <div className="flex justify-between text-sm mb-2">
                     <span className="flex items-center gap-2"><Volume2 className="w-4 h-4" /> {t.volume}</span>
                     <span className="font-mono">{Math.round(volume * 100)}%</span>
                   </div>
@@ -361,40 +444,40 @@ export default function App() {
                     const val = parseFloat(e.target.value);
                     if (!isNaN(val)) setVolume(val);
                   }}
-                    className="w-full h-1.5 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    className="w-full"
                   />
                 </div>
                 <div className="flex justify-between items-center pt-2">
-                  <span className="text-sm font-medium flex items-center gap-2 text-black dark:text-white">
-                    <Settings className="w-4 h-4 text-blue-500" />
+                  <span className="text-sm font-medium flex items-center gap-2">
+                    <Settings className="w-4 h-4" />
                     {t.readingMode}
                   </span>
-                  <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-xl">
+                  <div className="flex border border-current p-0.5">
                     <button 
                       onClick={() => setReadingMode('structural')}
-                      className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all ${readingMode === 'structural' ? 'bg-white dark:bg-blue-500 text-blue-600 dark:text-white shadow-sm' : 'text-black dark:text-gray-400'}`}
+                      className={`px-3 py-1 text-[10px] font-bold transition-all ${readingMode === 'structural' ? 'bg-current text-inherit' : ''}`}
                     >
                       {t.structural}
                     </button>
                     <button 
                       onClick={() => setReadingMode('analytical')}
-                      className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all ${readingMode === 'analytical' ? 'bg-white dark:bg-blue-500 text-blue-600 dark:text-white shadow-sm' : 'text-black dark:text-gray-400'}`}
+                      className={`px-3 py-1 text-[10px] font-bold transition-all ${readingMode === 'analytical' ? 'bg-current text-inherit' : ''}`}
                     >
                       {t.analytical}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between text-sm mb-2 text-black dark:text-gray-400">
+                  <div className="flex justify-between text-sm mb-2">
                     <span className="flex items-center gap-2"><Waves className="w-4 h-4" /> {t.soundStyle}</span>
                   </div>
                   <select 
                     value={selectedPresetId}
                     onChange={(e) => setSelectedPresetId(e.target.value)}
-                    className="w-full p-3 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none text-black dark:text-white appearance-none cursor-pointer"
+                    className="w-full p-3 bg-transparent border border-current text-sm font-medium outline-none appearance-none cursor-pointer"
                   >
                     {SOUND_PRESETS.map(preset => (
-                      <option key={preset.id} value={preset.id}>
+                      <option key={preset.id} value={preset.id} className="bg-inherit">
                         {preset.name[language]}
                       </option>
                     ))}
@@ -405,27 +488,27 @@ export default function App() {
           </section>
 
           {/* Sonification Layers */}
-          <section className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
-              <Layers className="w-5 h-5 text-blue-500" />
+          <section className="line-box p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Layers className="w-5 h-5" />
               {t.layers}
             </h2>
             <div className="space-y-4">
-              {(['mono', 'di', 'tri'] as const).map((layerKey) => (
-                <div key={layerKey} className="p-3 bg-white dark:bg-black rounded-2xl border border-gray-100 dark:border-white/5 space-y-3">
+              {(['mono', 'di', 'tri', 'window'] as const).map((layerKey) => (
+                <div key={layerKey} className="p-3 border border-current space-y-3">
                   <div className="flex justify-between items-center">
                     <div className="flex flex-col">
-                      <label className="text-xs font-bold uppercase flex items-center gap-2 text-black dark:text-white">
+                      <label className="text-xs font-bold uppercase flex items-center gap-2">
                         <input 
                           type="checkbox" 
                           checked={layers[layerKey].enabled} 
                           onChange={(e) => updateLayer(layerKey, { enabled: e.target.checked })}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="w-4 h-4 border-current text-current focus:ring-0"
                         />
                         {t[`${layerKey}Layer` as keyof typeof t]}
                       </label>
-                      <span className="text-[10px] text-blue-500 font-medium ml-6">
-                        {layerKey === 'mono' ? 'Bass' : layerKey === 'di' ? 'Pad' : 'Sparkle'}
+                      <span className="text-[10px] font-medium ml-6 opacity-70">
+                        {layerKey === 'mono' ? 'Bass' : layerKey === 'di' ? 'Pad' : layerKey === 'tri' ? 'Sparkle' : 'Chord'}
                       </span>
                     </div>
                     <div className="flex gap-1">
@@ -433,7 +516,7 @@ export default function App() {
                         <button 
                           key={type}
                           onClick={() => updateLayer(layerKey, { waveType: type })}
-                          className={`p-1 rounded ${layers[layerKey].waveType === type ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-white/5 text-black dark:text-white'}`}
+                          className={`p-1 border border-current ${layers[layerKey].waveType === type ? 'bg-current text-inherit' : ''}`}
                           title={type}
                         >
                           <Waves className="w-3 h-3" />
@@ -442,81 +525,118 @@ export default function App() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {layerKey === 'window' && (
+                      <div className="col-span-2 grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="flex justify-between text-[10px] mb-1">
+                            <span>{t.windowSize}</span>
+                            <span>{layers.window.windowSize}nt</span>
+                          </div>
+                          <input 
+                            type="range" min="2" max="100" step="1" value={layers.window.windowSize || 10} 
+                            onChange={(e) => updateLayer('window', { windowSize: parseInt(e.target.value) })}
+                            className="w-full"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] mb-1">
+                            <span>{t.windowStep}</span>
+                            <span>{layers.window.windowStep}nt</span>
+                          </div>
+                          <input 
+                            type="range" min="1" max="16" step="1" value={layers.window.windowStep || 1} 
+                            onChange={(e) => updateLayer('window', { windowStep: parseInt(e.target.value) })}
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
+                    )}
                     <div>
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
+                        <span>{t.layerTempo}</span>
+                        <span>{layers[layerKey].tempo}</span>
+                      </div>
+                      <input 
+                        type="range" min="40" max="960" step="1" value={layers[layerKey].tempo || 120} 
+                        onChange={(e) => updateLayer(layerKey, { tempo: parseInt(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>Vol</span>
                         <span>{Math.round(layers[layerKey].volume * 100)}%</span>
                       </div>
                       <input 
                         type="range" min="0" max="1" step="0.1" value={layers[layerKey].volume || 0} 
                         onChange={(e) => updateLayer(layerKey, { volume: parseFloat(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>{t.durationShort}</span>
                         <span>{layers[layerKey].duration}ms</span>
                       </div>
                       <input 
                         type="range" min="50" max="1000" step="10" value={layers[layerKey].duration || 0} 
                         onChange={(e) => updateLayer(layerKey, { duration: parseInt(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>Oct</span>
                         <span>{layers[layerKey].octaveOffset > 0 ? '+' : ''}{layers[layerKey].octaveOffset}</span>
                       </div>
                       <input 
                         type="range" min="-3" max="3" step="1" value={layers[layerKey].octaveOffset || 0} 
                         onChange={(e) => updateLayer(layerKey, { octaveOffset: parseInt(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>Off</span>
                         <span>{layers[layerKey].stepOffset}</span>
                       </div>
                       <input 
                         type="range" min="0" max="16" step="1" value={layers[layerKey].stepOffset || 0} 
                         onChange={(e) => updateLayer(layerKey, { stepOffset: parseInt(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>Det</span>
                         <span>{layers[layerKey].detune}c</span>
                       </div>
                       <input 
                         type="range" min="-50" max="50" step="1" value={layers[layerKey].detune || 0} 
                         onChange={(e) => updateLayer(layerKey, { detune: parseInt(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>Loop</span>
                         <span>{layers[layerKey].loopLength || sequence.length}</span>
                       </div>
                       <input 
                         type="range" min="0" max={sequence.length} step="1" value={layers[layerKey].loopLength || 0} 
                         onChange={(e) => updateLayer(layerKey, { loopLength: parseInt(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                     <div className="col-span-2">
-                      <div className="flex justify-between text-[10px] mb-1 text-black dark:text-gray-400">
+                      <div className="flex justify-between text-[10px] mb-1">
                         <span>Pan</span>
                         <span>{layers[layerKey].pan === 0 ? 'C' : layers[layerKey].pan > 0 ? `R ${Math.round(layers[layerKey].pan * 100)}` : `L ${Math.round(Math.abs(layers[layerKey].pan) * 100)}`}</span>
                       </div>
                       <input 
                         type="range" min="-1" max="1" step="0.1" value={layers[layerKey].pan || 0} 
                         onChange={(e) => updateLayer(layerKey, { pan: parseFloat(e.target.value) })}
-                        className="w-full h-1 bg-gray-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        className="w-full"
                       />
                     </div>
                   </div>
@@ -526,15 +646,15 @@ export default function App() {
           </section>
 
           {/* Mapping Editor */}
-          <section className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10">
+          <section className="line-box p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2 text-black dark:text-white">
-                <Settings className="w-5 h-5 text-blue-500" />
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Settings className="w-5 h-5" />
                 {t.mapping}
               </h2>
               <button 
                 onClick={resetMapping}
-                className="text-xs text-blue-500 hover:underline font-medium"
+                className="text-xs hover:underline font-medium"
               >
                 {t.reset}
               </button>
@@ -542,8 +662,8 @@ export default function App() {
             <div className="grid grid-cols-2 gap-4">
               {(['A', 'C', 'G', 'T'] as Base[]).map((base) => (
                 <div key={base} className="space-y-1">
-                  <label className="text-xs font-bold uppercase flex items-center gap-2 text-black dark:text-white">
-                    <span className={`w-2 h-2 rounded-full bg-current base-${base}`} />
+                  <label className="text-xs font-bold uppercase flex items-center gap-2">
+                    <span className={`w-2 h-2 border border-current base-${base}`} />
                     {base}
                   </label>
                   <div className="relative">
@@ -554,9 +674,9 @@ export default function App() {
                         const val = parseFloat(e.target.value);
                         updateMapping(base, isNaN(val) ? 0 : val);
                       }}
-                      className="w-full p-2 bg-white dark:bg-black border border-gray-200 dark:border-white/10 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none text-black dark:text-white"
+                      className="w-full p-2 bg-transparent border border-current text-sm font-mono outline-none"
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-black dark:text-gray-400">Hz</span>
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] opacity-60">Hz</span>
                   </div>
                 </div>
               ))}
@@ -568,10 +688,10 @@ export default function App() {
         <div className="lg:col-span-8 space-y-6">
           
           {/* Sequence Viewer */}
-          <section className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10 min-h-[400px] flex flex-col">
+          <section className="line-box p-6 min-h-[400px] flex flex-col">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2 text-black dark:text-white">
-                <Dna className="w-5 h-5 text-blue-500" />
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Dna className="w-5 h-5" />
                 {sequenceName}
               </h2>
               <div className="flex items-center gap-4">
@@ -584,23 +704,18 @@ export default function App() {
                     {t.clearPauses}
                   </button>
                 )}
-                <div className="text-xs font-mono text-black dark:text-gray-400">
-                  {currentIndex + 1} / {sequence.length}
+                <div className="text-xs font-mono opacity-60">
+                  {currentIndices.mono + 1} / {sequence.length}
                 </div>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto max-h-[600px] p-4 bg-white dark:bg-black rounded-2xl border border-gray-200 dark:border-white/10 shadow-inner">
+            <div className="flex-1 overflow-y-auto max-h-[600px] p-4 border border-current">
               <div className="flex flex-wrap content-start gap-0.5">
                 {sequence.map((base, idx) => {
-                  const getLayerIdx = (key: keyof LayerConfigs) => {
-                    if (currentIndex === -1) return -1;
-                    const loop = layers[key].loopLength || sequence.length;
-                    return ((currentIndex % loop) + layers[key].stepOffset) % sequence.length;
-                  };
-                  
-                  const isMono = idx === getLayerIdx('mono');
-                  const isDi = layers.di.enabled && idx === getLayerIdx('di');
-                  const isTri = layers.tri.enabled && idx === getLayerIdx('tri');
+                  const isMono = idx === currentIndices.mono;
+                  const isDi = layers.di.enabled && idx === currentIndices.di;
+                  const isTri = layers.tri.enabled && idx === currentIndices.tri;
+                  const isWindow = layers.window.enabled && idx === currentIndices.window;
                   
                   return (
                     <div key={idx} className="relative group">
@@ -608,12 +723,12 @@ export default function App() {
                         initial={false}
                         onClick={() => toggleBase(idx)}
                         animate={{ 
-                          scale: (isMono || isDi || isTri) ? 1.1 : 1,
-                          backgroundColor: isMono ? 'var(--accent)' : isDi ? '#10b981' : isTri ? '#f59e0b' : undefined,
-                          color: (isMono || isDi || isTri) ? 'white' : undefined,
+                          scale: (isMono || isDi || isTri || isWindow) ? 1.1 : 1,
+                          backgroundColor: isMono ? 'var(--accent)' : isDi ? '#10b981' : isTri ? '#f59e0b' : isWindow ? '#8b5cf6' : undefined,
+                          color: (isMono || isDi || isTri || isWindow) ? 'white' : undefined,
                           opacity: base === '-' ? 0.3 : 1,
                         }}
-                        className={`sequence-base base-${base} ${(isMono || isDi || isTri) ? 'base-active' : ''} cursor-pointer hover:ring-2 hover:ring-blue-500/50`}
+                        className={`sequence-base base-${base} ${(isMono || isDi || isTri || isWindow) ? 'base-active' : ''} cursor-pointer hover:ring-2 hover:ring-blue-500/50`}
                       >
                         {base}
                       </motion.span>
@@ -621,6 +736,7 @@ export default function App() {
                         {isMono && <div className="w-1 h-1 rounded-full bg-blue-500 shadow-[0_0_4px_rgba(59,130,246,0.8)]" />}
                         {isDi && <div className="w-1 h-1 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.8)]" />}
                         {isTri && <div className="w-1 h-1 rounded-full bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.8)]" />}
+                        {isWindow && <div className="w-1 h-1 rounded-full bg-violet-500 shadow-[0_0_4px_rgba(139,92,246,0.8)]" />}
                       </div>
                     </div>
                   );
@@ -631,57 +747,57 @@ export default function App() {
 
           {/* Stats Panel */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-black p-6 rounded-3xl border border-gray-200 dark:border-white/10">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
-                <Activity className="w-5 h-5 text-blue-500" />
+            <div className="line-box p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Activity className="w-5 h-5" />
                 {t.stats}
               </h2>
               <div className="space-y-4">
-                <div className="flex justify-between items-end border-b border-gray-200 dark:border-white/10 pb-2">
-                  <span className="text-sm text-black dark:text-gray-400">{t.length}</span>
-                  <span className="text-xl font-bold font-mono text-black dark:text-white">{stats.length}</span>
+                <div className="flex justify-between items-end border-b border-current pb-2">
+                  <span className="text-sm opacity-70">{t.length}</span>
+                  <span className="text-xl font-bold font-mono">{stats.length}</span>
                 </div>
-                <div className="flex justify-between items-end border-b border-gray-200 dark:border-white/10 pb-2">
-                  <span className="text-sm text-black dark:text-gray-400">{t.gcContent}</span>
+                <div className="flex justify-between items-end border-b border-current pb-2">
+                  <span className="text-sm opacity-70">{t.gcContent}</span>
                   <span className="text-xl font-bold font-mono text-emerald-500">{stats.gcContent.toFixed(1)}%</span>
                 </div>
                 <div className="grid grid-cols-4 gap-2 pt-2">
                   {(['A', 'C', 'G', 'T'] as Base[]).map(base => (
-                    <div key={base} className="text-center p-2 bg-white dark:bg-black rounded-xl border border-gray-100 dark:border-white/5">
+                    <div key={base} className="text-center p-2 border border-current">
                       <div className={`text-[10px] font-bold base-${base}`}>{base}</div>
-                      <div className="text-sm font-mono font-bold text-black dark:text-white">{stats.counts[base]}</div>
+                      <div className="text-sm font-mono font-bold">{stats.counts[base]}</div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-black p-6 rounded-3xl text-black dark:text-blue-400 border border-gray-200 dark:border-blue-900/50 shadow-xl shadow-blue-500/5 relative overflow-hidden">
-              <Dna className="absolute -right-8 -bottom-8 w-48 h-48 text-blue-500/10 dark:text-blue-500/5 rotate-12" />
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
-                <BookOpen className="w-5 h-5 text-blue-500" />
+            <div className="line-box p-6 relative overflow-hidden">
+              <Dna className="absolute -right-8 -bottom-8 w-48 h-48 opacity-5 rotate-12" />
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <BookOpen className="w-5 h-5" />
                 {language === 'en' ? 'Learning Challenges' : 'Desafíos de Aprendizaje'}
               </h2>
               <div className="space-y-4 text-sm relative z-10">
-                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
-                  <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">1. {language === 'en' ? 'The GC Rhythm' : 'El Ritmo GC'}</p>
-                  <p className="text-xs text-black dark:text-blue-200">
+                <div className="p-3 border border-current">
+                  <p className="font-bold mb-1">1. {language === 'en' ? 'The GC Rhythm' : 'El Ritmo GC'}</p>
+                  <p className="text-xs opacity-80">
                     {language === 'en' 
                       ? "Guanine (G) and Cytosine (C) create the longest beats. Can you find a sequence with high GC content and describe how its 'heartbeat' feels compared to an AT-rich sequence?"
                       : "La Guanina (G) y la Citosina (C) crean los pulsos más largos. ¿Puedes encontrar una secuencia con alto contenido GC y describir cómo se siente su 'latido' comparado con una rica en AT?"}
                   </p>
                 </div>
-                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
-                  <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">2. {language === 'en' ? 'Codon Harmonics' : 'Armónicos de Codón'}</p>
-                  <p className="text-xs text-black dark:text-blue-200">
+                <div className="p-3 border border-current">
+                  <p className="font-bold mb-1">2. {language === 'en' ? 'Codon Harmonics' : 'Armónicos de Codón'}</p>
+                  <p className="text-xs opacity-80">
                     {language === 'en' 
                       ? "Enable the Tri-nucleotide layer. Some codons trigger silence (rests). Can you identify which base combinations create these rhythmic gaps and why they might be important for musical structure?"
                       : "Activa la capa de Tri-nucleótidos. Algunos codones activan silencios. ¿Puedes identificar qué combinaciones de bases crean estos huecos rítmicos y por qué podrían ser importantes para la estructura musical?"}
                   </p>
                 </div>
-                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-100 dark:border-blue-500/20">
-                  <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">3. {language === 'en' ? 'Sonic Mutation' : 'Mutación Sónica'}</p>
-                  <p className="text-xs text-black dark:text-blue-200">
+                <div className="p-3 border border-current">
+                  <p className="font-bold mb-1">3. {language === 'en' ? 'Sonic Mutation' : 'Mutación Sónica'}</p>
+                  <p className="text-xs opacity-80">
                     {language === 'en' 
                       ? "Manually toggle bases to create pauses (-). Try to 'sculpt' a 4/4 drum beat using only genetic pauses. How does changing the 'Sound Style' affect the emotional impact of your genetic composition?"
                       : "Cambia manualmente las bases para crear pausas (-). Intenta 'esculpir' un ritmo de 4/4 usando solo pausas genéticas. ¿Cómo afecta cambiar el 'Estilo de Sonido' al impacto emocional de tu composición genética?"}
@@ -694,16 +810,16 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="max-w-7xl mx-auto px-4 py-12 border-t border-gray-200 dark:border-white/10 mt-12">
+      <footer className="max-w-7xl mx-auto px-4 py-12 border-t border-current mt-12">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">
-            <Dna className="w-5 h-5 text-black dark:text-white" />
-            <span className="text-sm font-medium tracking-tight text-black dark:text-white">DNA Sound Lab v1.1</span>
+            <Dna className="w-5 h-5" />
+            <span className="text-sm font-medium tracking-tight">DNA Sound Lab v1.1</span>
           </div>
-          <div className="flex gap-8 text-sm text-black dark:text-white">
-            <span className="hover:text-blue-500 cursor-pointer transition-colors">FASTA Support Enabled</span>
-            <span className="hover:text-blue-500 cursor-pointer transition-colors">Multi-Layer Sonification</span>
-            <span className="hover:text-blue-500 cursor-pointer transition-colors">Professional Tool</span>
+          <div className="flex gap-8 text-sm">
+            <span className="hover:underline cursor-pointer transition-colors">FASTA Support Enabled</span>
+            <span className="hover:underline cursor-pointer transition-colors">Multi-Layer Sonification</span>
+            <span className="hover:underline cursor-pointer transition-colors">Professional Tool</span>
           </div>
         </div>
       </footer>

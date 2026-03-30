@@ -32,20 +32,34 @@ export const parseFASTA = (text: string): { name: string; sequence: Base[] } => 
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('>')) {
-      name = trimmed.substring(1);
+      if (name === 'Unknown Sequence') {
+        name = trimmed.substring(1);
+      }
     } else {
-      sequenceStr += trimmed.toUpperCase();
+      sequenceStr += trimmed.replace(/[^ACGT-]/gi, '').toUpperCase();
     }
   }
 
   const sequence: Base[] = [];
   for (const char of sequenceStr) {
-    if (['A', 'C', 'G', 'T', '-'].includes(char)) {
-      sequence.push(char as Base);
-    }
+    sequence.push(char as Base);
   }
 
   return { name, sequence };
+};
+
+export const fetchGenBank = async (accession: string, limit: number = 2000): Promise<{ name: string; sequence: Base[] }> => {
+  const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=${accession}&rettype=fasta&retmode=text`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch from GenBank');
+  }
+  const text = await response.text();
+  let { name, sequence } = parseFASTA(text);
+  if (sequence.length > limit) {
+    sequence = sequence.slice(0, limit);
+  }
+  return { name: `GenBank: ${accession} (${name})`, sequence };
 };
 
 export const getDiNucleotide = (sequence: Base[], index: number): string | null => {
