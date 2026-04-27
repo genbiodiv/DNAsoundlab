@@ -1,11 +1,14 @@
 import { useEffect, useRef } from 'react';
+import { VisualizationType } from '../types';
 
 interface VisualizerProps {
   analyser: AnalyserNode | null;
   isDarkMode: boolean;
+  type?: VisualizationType;
+  color?: string;
 }
 
-export const Visualizer = ({ analyser, isDarkMode }: VisualizerProps) => {
+export const Visualizer = ({ analyser, isDarkMode, type = 'spectrum', color }: VisualizerProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -29,37 +32,61 @@ export const Visualizer = ({ analyser, isDarkMode }: VisualizerProps) => {
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
 
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
     let animationId: number;
 
     const draw = () => {
       if (!canvas || !ctx || !container) return;
       animationId = requestAnimationFrame(draw);
-      analyser.getByteFrequencyData(dataArray);
 
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.width / dpr;
       const height = canvas.height / dpr;
 
-      // Clear canvas
       ctx.clearRect(0, 0, width, height);
 
-      const barWidth = (width / bufferLength) * 2;
-      let barHeight;
-      let x = 0;
+      const drawColor = color || (isDarkMode ? '#ffffff' : '#000000');
+      ctx.strokeStyle = drawColor;
+      ctx.fillStyle = drawColor;
+      ctx.lineWidth = 1;
 
-      for (let i = 0; i < bufferLength; i++) {
-        barHeight = (dataArray[i] / 255) * height;
+      if (type === 'spectrum' || type === 'combination') {
+        analyser.getByteFrequencyData(dataArray);
+        const barWidth = (width / bufferLength) * (type === 'combination' ? 1 : 2.5);
+        let x = 0;
 
-        // Color based on theme
-        ctx.fillStyle = isDarkMode ? '#ffffff' : '#000000';
-        
-        // Rectangular bars (no rounding)
-        ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+        for (let i = 0; i < bufferLength; i++) {
+          const barHeight = (dataArray[i] / 255) * height;
+          ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+          x += barWidth + 1;
+        }
+      }
 
-        x += barWidth + 1;
+      if (type === 'waveform' || type === 'combination') {
+        analyser.getByteTimeDomainData(dataArray);
+        ctx.beginPath();
+        const sliceWidth = width / bufferLength;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          const v = dataArray[i] / 128.0;
+          const y = (v * height) / 2;
+
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+          x += sliceWidth;
+        }
+
+        if (type === 'combination') {
+          ctx.globalAlpha = 0.5;
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
       }
     };
 
@@ -67,14 +94,15 @@ export const Visualizer = ({ analyser, isDarkMode }: VisualizerProps) => {
 
     return () => {
       cancelAnimationFrame(animationId);
+      resizeObserver.disconnect();
     };
-  }, [analyser, isDarkMode]);
+  }, [analyser, isDarkMode, type, color]);
 
   return (
     <div ref={containerRef} className="w-full h-full">
       <canvas 
         ref={canvasRef} 
-        className="w-full h-full opacity-60"
+        className="w-full h-full opacity-80"
       />
     </div>
   );

@@ -54,7 +54,10 @@ export const useAudioEngine = (mapping: Mapping, layers: LayerConfigs, readingMo
   // Keep refs up to date
   useEffect(() => {
     presetRef.current = preset;
-  }, [preset]);
+    if (audioContextRef.current && analyser) {
+      analyser.fftSize = preset.fftSize;
+    }
+  }, [preset, analyser]);
 
   useEffect(() => {
     layersRef.current = layers;
@@ -66,7 +69,7 @@ export const useAudioEngine = (mapping: Mapping, layers: LayerConfigs, readingMo
       const analyser = ctx.createAnalyser();
       const masterGain = ctx.createGain();
       
-      analyser.fftSize = 256;
+      analyser.fftSize = presetRef.current.fftSize;
       masterGain.connect(analyser);
       analyser.connect(ctx.destination);
       

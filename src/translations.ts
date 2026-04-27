@@ -45,6 +45,7 @@ export const translations: Record<'en' | 'es', Translation> = {
     structural: 'Structural (Stable)',
     analytical: 'Analytical (Sliding)',
     soundStyle: 'Sound Style',
+    visualization: 'Visualizer Mode',
   },
   es: {
     title: 'DNA Sound Lab',
@@ -90,5 +91,6 @@ export const translations: Record<'en' | 'es', Translation> = {
     structural: 'Estructural (Estable)',
     analytical: 'Analítico (Deslizante)',
     soundStyle: 'Estilo de Sonido',
+    visualization: 'Modo de Visualización',
   },
 };

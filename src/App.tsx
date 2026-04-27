@@ -18,9 +18,10 @@ import {
   Dna,
   Upload,
   Layers,
-  Waves
+  Waves,
+  Eye
 } from 'lucide-react';
-import { Base, Mapping, DEFAULT_MAPPING, Language, LayerConfig, ReadingMode, SOUND_PRESETS } from './types';
+import { Base, Mapping, DEFAULT_MAPPING, Language, LayerConfig, ReadingMode, SOUND_PRESETS, VisualizationType } from './types';
 import { generateRandomSequence, calculateStats, parseFASTA, fetchGenBank } from './utils/dnaUtils';
 import { useAudioEngine, LayerConfigs } from './hooks/useAudioEngine';
 import { translations } from './translations';
@@ -46,6 +47,7 @@ export default function App() {
   const [volume, setVolume] = useState(0.5);
   const [readingMode, setReadingMode] = useState<ReadingMode>('structural');
   const [selectedPresetId, setSelectedPresetId] = useState<string>(SOUND_PRESETS[0].id);
+  const [visualizationType, setVisualizationType] = useState<VisualizationType>('spectrum');
   const [sequenceName, setSequenceName] = useState<string>('Random Sequence');
   const [originalBases, setOriginalBases] = useState<Record<number, Base>>({});
   const [accession, setAccession] = useState('');
@@ -271,7 +273,7 @@ export default function App() {
             <Dna className="text-blue-500 w-6 h-6" />
             <h1 className="text-xl font-bold tracking-tight">{t.title}</h1>
             <div className="h-6 w-24 ml-2 hidden sm:block">
-              <Visualizer analyser={analyser} isDarkMode={isDarkMode} />
+              <Visualizer analyser={analyser} isDarkMode={isDarkMode} type={visualizationType} color={selectedPreset.visColor} />
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -385,7 +387,7 @@ export default function App() {
                 {t.play}
               </div>
               <div className="h-8 w-32 border border-current">
-                <Visualizer analyser={analyser} isDarkMode={isDarkMode} />
+                <Visualizer analyser={analyser} isDarkMode={isDarkMode} type={visualizationType} color={selectedPreset.visColor} />
               </div>
             </h2>
             <div className="space-y-6">
@@ -479,13 +481,29 @@ export default function App() {
                     {SOUND_PRESETS.map(preset => (
                       <option key={preset.id} value={preset.id} className="bg-inherit">
                         {preset.name[language]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="flex items-center gap-2"><Eye className="w-4 h-4" /> {t.visualization}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(['spectrum', 'waveform', 'combination'] as VisualizationType[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setVisualizationType(mode)}
+                    className={`py-2 text-[10px] font-bold border border-current transition-all ${visualizationType === mode ? 'bg-current text-inherit' : 'opacity-60 hover:opacity-100'}`}
+                  >
+                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  </button>
+                ))}
               </div>
             </div>
-          </section>
+          </div>
+        </div>
+      </section>
 
           {/* Sonification Layers */}
           <section className="line-box p-6">

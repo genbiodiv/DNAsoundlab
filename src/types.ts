@@ -36,6 +36,7 @@ export interface DNAStats {
 
 export type Language = 'en' | 'es';
 export type ReadingMode = 'structural' | 'analytical';
+export type VisualizationType = 'spectrum' | 'waveform' | 'combination';
 
 export interface Translation {
   title: string;
@@ -81,6 +82,7 @@ export interface Translation {
   structural: string;
   analytical: string;
   soundStyle: string;
+  visualization: string;
 }
 
 export interface LayerParams {
@@ -98,6 +100,8 @@ export interface SoundPreset {
   pad: LayerParams;
   sparkle: LayerParams;
   window: LayerParams;
+  visColor: string;
+  fftSize: number;
 }
 
 export const SOUND_PRESETS: SoundPreset[] = [
@@ -107,7 +111,9 @@ export const SOUND_PRESETS: SoundPreset[] = [
     bass: { type: 'sine', filterFreq: 200, q: 1, attack: 0.05, release: 0.2 },
     pad: { type: 'triangle', filterFreq: 800, q: 2, attack: 0.5, release: 1.5 },
     sparkle: { type: 'sine', filterFreq: 2000, q: 5, attack: 0.01, release: 0.1 },
-    window: { type: 'sine', filterFreq: 1000, q: 1, attack: 0.1, release: 0.5 }
+    window: { type: 'sine', filterFreq: 1000, q: 1, attack: 0.1, release: 0.5 },
+    visColor: '#3b82f6', // blue-500
+    fftSize: 256
   },
   {
     id: 'deep-space',
@@ -115,7 +121,9 @@ export const SOUND_PRESETS: SoundPreset[] = [
     bass: { type: 'triangle', filterFreq: 100, q: 0.5, attack: 0.2, release: 0.5 },
     pad: { type: 'sine', filterFreq: 400, q: 1, attack: 1.5, release: 3.0 },
     sparkle: { type: 'triangle', filterFreq: 4000, q: 10, attack: 0.1, release: 0.8 },
-    window: { type: 'sine', filterFreq: 500, q: 0.5, attack: 1.0, release: 2.0 }
+    window: { type: 'sine', filterFreq: 500, q: 0.5, attack: 1.0, release: 2.0 },
+    visColor: '#8b5cf6', // violet-500
+    fftSize: 512
   },
   {
     id: 'cyberpunk',
@@ -123,7 +131,9 @@ export const SOUND_PRESETS: SoundPreset[] = [
     bass: { type: 'sawtooth', filterFreq: 150, q: 4, attack: 0.02, release: 0.1 },
     pad: { type: 'sawtooth', filterFreq: 1200, q: 8, attack: 0.1, release: 0.4 },
     sparkle: { type: 'square', filterFreq: 3000, q: 12, attack: 0.005, release: 0.05 },
-    window: { type: 'sawtooth', filterFreq: 800, q: 5, attack: 0.05, release: 0.2 }
+    window: { type: 'sawtooth', filterFreq: 800, q: 5, attack: 0.05, release: 0.2 },
+    visColor: '#f43f5e', // rose-500
+    fftSize: 128
   },
   {
     id: 'organic',
@@ -131,7 +141,9 @@ export const SOUND_PRESETS: SoundPreset[] = [
     bass: { type: 'sine', filterFreq: 300, q: 0.2, attack: 0.1, release: 0.3 },
     pad: { type: 'triangle', filterFreq: 600, q: 0.5, attack: 0.8, release: 1.2 },
     sparkle: { type: 'sine', filterFreq: 1500, q: 2, attack: 0.05, release: 0.4 },
-    window: { type: 'triangle', filterFreq: 400, q: 1, attack: 0.5, release: 1.0 }
+    window: { type: 'triangle', filterFreq: 400, q: 1, attack: 0.5, release: 1.0 },
+    visColor: '#10b981', // emerald-500
+    fftSize: 1024
   },
   {
     id: 'retro',
@@ -139,7 +151,9 @@ export const SOUND_PRESETS: SoundPreset[] = [
     bass: { type: 'square', filterFreq: 400, q: 1, attack: 0.01, release: 0.05 },
     pad: { type: 'square', filterFreq: 1000, q: 2, attack: 0.02, release: 0.1 },
     sparkle: { type: 'square', filterFreq: 5000, q: 1, attack: 0.001, release: 0.02 },
-    window: { type: 'square', filterFreq: 2000, q: 1, attack: 0.01, release: 0.05 }
+    window: { type: 'square', filterFreq: 2000, q: 1, attack: 0.01, release: 0.05 },
+    visColor: '#f59e0b', // amber-500
+    fftSize: 64
   },
   {
     id: 'ethereal',
@@ -147,7 +161,9 @@ export const SOUND_PRESETS: SoundPreset[] = [
     bass: { type: 'sine', filterFreq: 80, q: 1, attack: 0.3, release: 0.8 },
     pad: { type: 'sine', filterFreq: 2000, q: 0.1, attack: 2.0, release: 4.0 },
     sparkle: { type: 'triangle', filterFreq: 8000, q: 20, attack: 0.2, release: 1.5 },
-    window: { type: 'sine', filterFreq: 3000, q: 0.1, attack: 1.5, release: 3.0 }
+    window: { type: 'sine', filterFreq: 3000, q: 0.1, attack: 1.5, release: 3.0 },
+    visColor: '#06b6d4', // cyan-500
+    fftSize: 2048
   }
 ];
 
